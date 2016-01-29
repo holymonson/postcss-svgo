@@ -1,10 +1,11 @@
 import postcss from 'postcss';
 import valueParser from 'postcss-value-parser';
 import SVGO from 'svgo';
+import { encodeSVGDatauri, decodeSVGDatauri } from 'svgo/lib/svgo/tools';
 import isSvg from 'is-svg';
 import {encode, decode} from './lib/url';
 
-const dataURI = /data:image\/svg\+xml(;(charset=)?utf-8)?,/;
+const dataURI = /data:image\/svg\+xml/;
 
 function minifyPromise (svgo, decl, opts) {
     const promises = [];
@@ -15,26 +16,23 @@ function minifyPromise (svgo, decl, opts) {
         }
         let value = node.nodes[0].value;
 
-        let decodedUri = decode(value);
-        let isUriEncoded = decodedUri !== value;
-        if (isUriEncoded) {
-            value = decodedUri;
+        const data = decodeSVGDatauri(value);
+        if (!isSvg(data)) {
+            return;
         }
+
+        let isUriEncoded = !value.endsWith(data);
         if (opts.encode !== undefined) {
             isUriEncoded = opts.encode;
         }
 
-        if (!dataURI.test(value) || !isSvg(value)) {
-            return;
-        }
         promises.push(new Promise((resolve, reject) => {
-            svgo.optimize(value.replace(dataURI, ''), result => {
+            svgo.optimize(data, result => {
                 if (result.error) {
                     return reject(`Error parsing SVG: ${result.error}`);
                 }
                 node.before = node.after = '';
-                let data = isUriEncoded ? encode(result.data) : result.data;
-                node.nodes[0].value = 'data:image/svg+xml;charset=utf-8,' + data;
+                node.nodes[0].value = encodeSVGDatauri(result.data, isUriEncoded ? 'enc' : 'unenc');
                 node.nodes[0].quote = isUriEncoded ? '"' : '\'';
                 node.nodes[0].type = 'string';
                 resolve();
